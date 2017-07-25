@@ -15,6 +15,10 @@ import ImageIO
     func updateUI(rotationAngle: CGFloat, fieldOfViewAngle: CGFloat)
 }
 
+@objc public protocol CTPanoramaHotspotDelegate {
+    func hotspotTapped(name: String)
+}
+
 @objc public enum CTPanoramaControlMethod: Int {
     case motion
     case touch
@@ -23,6 +27,11 @@ import ImageIO
 @objc public enum CTPanoramaType: Int {
     case cylindrical
     case spherical
+}
+
+@objc public enum CTPanoramaHotspotType: Int {
+    case ground
+    case hover
 }
 
 @objc public class CTPanoramaView: UIView {
@@ -34,6 +43,24 @@ import ImageIO
     public var image: UIImage? {
         didSet {
             panoramaType = panoramaTypeForCurrentImage
+        }
+    }
+    
+    public var hotspotImage: UIImage? {
+        didSet {
+            createHotspotNodes()
+        }
+    }
+    
+    public var hotspots: [String:Float]? {
+        didSet {
+            createHotspotNodes()
+        }
+    }
+    
+    public var hotspotType: CTPanoramaHotspotType = .ground {
+        didSet {
+            createHotspotNodes()
         }
     }
     
@@ -58,6 +85,7 @@ import ImageIO
     }
     
     public var compass: CTPanoramaCompass?
+    public var hotspotDelegate: CTPanoramaHotspotDelegate?
     public var movementHandler: ((_ rotationAngle: CGFloat, _ fieldOfViewAngle: CGFloat) -> ())?
     
     // MARK: Private properties
@@ -67,6 +95,7 @@ import ImageIO
     private let scene = SCNScene()
     private let motionManager = CMMotionManager()
     private var geometryNode: SCNNode?
+    private var hotspotsNodes: [SCNNode] = []
     private var prevLocation = CGPoint.zero
     private var prevBounds = CGRect.zero
     
@@ -125,6 +154,7 @@ import ImageIO
         
         sceneView.scene = scene
         sceneView.backgroundColor = UIColor.black
+        sceneView.antialiasingMode = .multisampling4X
         
         if controlMethod == nil {
             controlMethod = .touch
@@ -140,8 +170,9 @@ import ImageIO
         
         let material = SCNMaterial()
         material.diffuse.contents = image
-        material.diffuse.mipFilter = .nearest
-        material.diffuse.magnificationFilter = .nearest
+        material.diffuse.mipFilter = .linear
+        material.diffuse.maxAnisotropy = 1.0
+        material.diffuse.magnificationFilter = .linear
         material.diffuse.contentsTransform = SCNMatrix4MakeScale(-1, 1, 1)
         material.diffuse.wrapS = .repeat
         material.cullMode = .front
@@ -168,6 +199,53 @@ import ImageIO
         scene.rootNode.addChildNode(geometryNode!)
     }
     
+    private func createHotspotNodes() {
+        guard let hotspotImage = hotspotImage else {return}
+        guard let hotspots = hotspots else {return}
+        
+        for node in hotspotsNodes {
+            node.removeFromParentNode()
+        }
+        hotspotsNodes.removeAll()
+        
+        let material = SCNMaterial()
+        material.diffuse.contents = hotspotImage
+        material.diffuse.mipFilter = .linear
+        material.diffuse.maxAnisotropy = 1.0
+        material.diffuse.magnificationFilter = .linear
+        material.isDoubleSided = true
+        
+        for (name,angle) in hotspots {
+            let node = createHotspotNode(angle: angle.toRadians(), material: material)
+            node.name = name
+            scene.rootNode.addChildNode(node)
+            hotspotsNodes.append(node)
+        }
+    }
+    
+    private func createHotspotNode(angle:Float, material:SCNMaterial) -> SCNNode {
+        let hotspot = SCNPlane(width: 1.0, height: 1.0)
+        hotspot.firstMaterial = material
+        
+        let hotspotNode = SCNNode()
+        hotspotNode.geometry = hotspot
+        hotspotNode.position = hotspotPosition(angle:angle, radius: Float(radius/2))
+        
+        var pitch:Float = 0
+        
+        if hotspotType == .ground {
+            pitch = Float(-45).toRadians()
+        }
+        
+        hotspotNode.eulerAngles = SCNVector3Make(pitch, Float(90).toRadians()-angle, 0)
+        
+        return hotspotNode
+    }
+    
+    private func hotspotPosition(angle:Float, radius:Float) -> SCNVector3 {
+        return SCNVector3Make(cos(angle)*radius, -radius/3, sin(angle)*radius)
+    }
+    
     private func replace(overlayView: UIView?, with newOverlayView: UIView?) {
         overlayView?.removeFromSuperview()
         guard let newOverlayView = newOverlayView else {return}
@@ -180,6 +258,9 @@ import ImageIO
         if method == .touch {
                 let panGestureRec = UIPanGestureRecognizer(target: self, action: #selector(handlePan(panRec:)))
                 sceneView.addGestureRecognizer(panGestureRec)
+            
+                let tapGestureRec = UITapGestureRecognizer(target: self, action: #selector(handleTap(tapRec:)))
+                sceneView.addGestureRecognizer(tapGestureRec)
  
             if motionManager.isDeviceMotionActive {
                 motionManager.stopDeviceMotionUpdates()
@@ -253,6 +334,18 @@ import ImageIO
             prevLocation = location
             
             reportMovement(CGFloat(-cameraNode.eulerAngles.y), xFov.toRadians())
+        }
+    }
+    
+    @objc private func handleTap(tapRec: UITapGestureRecognizer) {
+        let hitResults = sceneView.hitTest(tapRec.location(in: sceneView), options: nil)
+        
+        if let result = hitResults.first {
+            let node = result.node
+            
+            if node != geometryNode {
+                hotspotDelegate?.hotspotTapped(name: node.name!)
+            }
         }
     }
     
