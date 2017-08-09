@@ -255,12 +255,12 @@ import ImageIO
     private func switchControlMethod(to method: CTPanoramaControlMethod) {
         sceneView.gestureRecognizers?.removeAll()
 
+        let tapGestureRec = UITapGestureRecognizer(target: self, action: #selector(handleTap(tapRec:)))
+        sceneView.addGestureRecognizer(tapGestureRec)
+        
         if method == .touch {
                 let panGestureRec = UIPanGestureRecognizer(target: self, action: #selector(handlePan(panRec:)))
                 sceneView.addGestureRecognizer(panGestureRec)
-            
-                let tapGestureRec = UITapGestureRecognizer(target: self, action: #selector(handleTap(tapRec:)))
-                sceneView.addGestureRecognizer(tapGestureRec)
  
             if motionManager.isDeviceMotionActive {
                 motionManager.stopDeviceMotionUpdates()
