@@ -216,7 +216,7 @@ import ImageIO
         material.isDoubleSided = true
         
         for (name,angle) in hotspots {
-            let node = createHotspotNode(angle: angle.toRadians(), material: material)
+            let node = createHotspotNode(angle: (angle-90).toRadians(), material: material)
             node.name = name
             scene.rootNode.addChildNode(node)
             hotspotsNodes.append(node)
